@@ -29,7 +29,7 @@ resource "docker_container" "db" {
   }
 }
 
-# 3. Nginx со твојот HTML
+# 3. Nginx со локалниот HTML
 resource "docker_container" "web" {
   name  = "nginx_proxy"
   image = "nginx:latest"
@@ -45,7 +45,7 @@ resource "docker_container" "web" {
   }
 }
 
-# 4. Netdata за Мониторинг (како во линкот што го прати)
+# 4. Netdata за Мониторинг 
 resource "docker_container" "monitoring" {
   name  = "netdata"
   image = "netdata/netdata:latest"
@@ -85,7 +85,7 @@ resource "docker_container" "elasticsearch" {
   }
   env = [
     "discovery.type=single-node",
-    "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Ограничување на RAM за да не ти кочи компјутерот
+    "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Ограничување на RAM за да не кочи компјутерот
   ]
   ports {
     internal = 9200
