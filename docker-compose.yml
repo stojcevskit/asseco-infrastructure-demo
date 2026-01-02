@@ -40,3 +40,15 @@ services:
       - "5601:5601"
     depends_on:
       - elastic
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.1
+    container_name: asseco_filebeat
+    user: root
+    restart: always
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: filebeat -e -E output.elasticsearch.hosts=["asseco_elastic:9200"]
+    depends_on:
+      - elastic
