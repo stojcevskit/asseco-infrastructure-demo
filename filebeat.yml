@@ -1,0 +1,12 @@
+filebeat.inputs:
+- type: container
+  paths:
+    - /var/lib/docker/containers/*/*.log
+
+processors:
+- add_docker_metadata: ~
+
+output.elasticsearch:
+  hosts: ["http://asseco_elastic:9200"]
+
+logging.level: info

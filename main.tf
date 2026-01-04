@@ -14,10 +14,34 @@ resource "docker_network" "private_net" {
   name = "asseco_internal"
 }
 
-# 2. MariaDB со Persistence (Податоците се чуваат на диск)
+# --- СЛИКИ (IMAGES) ---
+resource "docker_image" "mariadb_image" {
+  name = "mariadb:latest"
+}
+
+resource "docker_image" "nginx_image" {
+  name = "nginx:latest"
+}
+
+resource "docker_image" "elasticsearch" {
+  name = "docker.elastic.co/elasticsearch/elasticsearch:8.11.1"
+}
+
+resource "docker_image" "kibana" {
+  name = "docker.elastic.co/kibana/kibana:8.11.1"
+}
+
+resource "docker_image" "grafana_image" {
+  name = "grafana/grafana:latest"
+}
+
+# --- КОНТЕЈНЕРИ ---
+
+# 2. MariaDB
 resource "docker_container" "db" {
   name  = "mariadb_server"
-  image = "mariadb:latest"
+  image = docker_image.mariadb_image.image_id
+  restart = "always"
   networks_advanced { name = docker_network.private_net.name }
   env = [
     "MARIADB_ROOT_PASSWORD=lozinka123",
@@ -29,10 +53,11 @@ resource "docker_container" "db" {
   }
 }
 
-# 3. Nginx со локалниот HTML
+# 3. Nginx
 resource "docker_container" "web" {
   name  = "nginx_proxy"
-  image = "nginx:latest"
+  image = docker_image.nginx_image.image_id
+  restart = "always"
   networks_advanced { name = docker_network.private_net.name }
   ports {
     internal = 80
@@ -45,10 +70,11 @@ resource "docker_container" "web" {
   }
 }
 
-# 4. Netdata за Мониторинг 
+# 4. Netdata
 resource "docker_container" "monitoring" {
   name  = "netdata"
   image = "netdata/netdata:latest"
+  restart = "always"
   ports {
     internal = 19999
     external = 19999
@@ -66,26 +92,16 @@ resource "docker_container" "monitoring" {
     read_only = true
   }
 }
-# Elasticsearch Image
-resource "docker_image" "elasticsearch" {
-  name = "docker.elastic.co/elasticsearch/elasticsearch:7.17.10"
-}
 
-# Kibana Image (Визуелизација на логови)
-resource "docker_image" "kibana" {
-  name = "docker.elastic.co/kibana/kibana:7.17.10"
-}
-
-# Elasticsearch Container
+# 5. Elasticsearch
 resource "docker_container" "elasticsearch" {
   name  = "asseco_elastic"
   image = docker_image.elasticsearch.image_id
-  networks_advanced {
-    name = docker_network.private_net.name
-  }
+  restart = "always"
+  networks_advanced { name = docker_network.private_net.name }
   env = [
     "discovery.type=single-node",
-    "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Ограничување на RAM за да не кочи компјутерот
+    "ES_JAVA_OPTS=-Xms512m -Xmx512m"
   ]
   ports {
     internal = 9200
@@ -93,19 +109,29 @@ resource "docker_container" "elasticsearch" {
   }
 }
 
-# Kibana Container
+# 6. Kibana
 resource "docker_container" "kibana" {
   name  = "asseco_kibana"
   image = docker_image.kibana.image_id
-  networks_advanced {
-    name = docker_network.private_net.name
-  }
+  restart = "always"
+  networks_advanced { name = docker_network.private_net.name }
   ports {
     internal = 5601
     external = 5601
   }
-  env = [
-    "ELASTICSEARCH_HOSTS=http://asseco_elastic:9200"
-  ]
+  env = ["ELASTICSEARCH_HOSTS=http://asseco_elastic:9200"]
   depends_on = [docker_container.elasticsearch]
+}
+
+# 7. Grafana
+resource "docker_container" "grafana_container" {
+  name  = "seco_grafana"
+  image = docker_image.grafana_image.image_id
+  restart = "always"
+  networks_advanced { name = docker_network.private_net.name }
+  ports {
+    internal = 3000
+    external = 3000
+  }
+  env = ["GF_SECURITY_ADMIN_PASSWORD=Lozinka123"]
 }
