@@ -31,8 +31,8 @@ resource "docker_image" "kibana" {
   name = "docker.elastic.co/kibana/kibana:8.11.1"
 }
 
-resource "docker_image" "grafana_image" {
-  name = "grafana/grafana:latest"
+resource "docker_image" "filebeat_image" {
+  name = "docker.elastic.co/beats/filebeat:8.11.1"
 }
 
 # --- КОНТЕЈНЕРИ ---
@@ -41,6 +41,10 @@ resource "docker_image" "grafana_image" {
 resource "docker_container" "db" {
   name  = "mariadb_server"
   image = docker_image.mariadb_image.image_id
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
+  }
   restart = "always"
   networks_advanced { name = docker_network.private_net.name }
   env = [
@@ -57,6 +61,10 @@ resource "docker_container" "db" {
 resource "docker_container" "web" {
   name  = "nginx_proxy"
   image = docker_image.nginx_image.image_id
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
+  }
   restart = "always"
   networks_advanced { name = docker_network.private_net.name }
   ports {
@@ -70,10 +78,14 @@ resource "docker_container" "web" {
   }
 }
 
-# 4. Netdata
+# 4. Netdata (За мониторинг на перформанси)
 resource "docker_container" "monitoring" {
   name  = "netdata"
   image = "netdata/netdata:latest"
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
+  }
   restart = "always"
   ports {
     internal = 19999
@@ -97,15 +109,25 @@ resource "docker_container" "monitoring" {
 resource "docker_container" "elasticsearch" {
   name  = "asseco_elastic"
   image = docker_image.elasticsearch.image_id
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
+  }
   restart = "always"
   networks_advanced { name = docker_network.private_net.name }
   env = [
     "discovery.type=single-node",
+    "xpack.security.enabled=false",
     "ES_JAVA_OPTS=-Xms512m -Xmx512m"
   ]
   ports {
     internal = 9200
     external = 9200
+  }
+  # Ова ги чува податоците на локалниот диск
+  volumes {
+    host_path      = "/root/terraform-proekt/es-data"
+    container_path = "/usr/share/elasticsearch/data"
   }
 }
 
@@ -113,25 +135,59 @@ resource "docker_container" "elasticsearch" {
 resource "docker_container" "kibana" {
   name  = "asseco_kibana"
   image = docker_image.kibana.image_id
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
+  }
   restart = "always"
   networks_advanced { name = docker_network.private_net.name }
   ports {
     internal = 5601
     external = 5601
   }
-  env = ["ELASTICSEARCH_HOSTS=http://asseco_elastic:9200"]
+  env = [
+    "ELASTICSEARCH_HOSTS=http://asseco_elastic:9200",
+    "XPACK_SECURITY_ENABLED=false"  
+  ]
   depends_on = [docker_container.elasticsearch]
 }
 
-# 7. Grafana
-resource "docker_container" "grafana_container" {
-  name  = "seco_grafana"
-  image = docker_image.grafana_image.image_id
+# 7. Filebeat
+resource "docker_container" "filebeat" {
+  name  = "asseco_filebeat"
+  image = docker_image.filebeat_image.image_id
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
+  }
+  user  = "root"
   restart = "always"
   networks_advanced { name = docker_network.private_net.name }
-  ports {
-    internal = 3000
-    external = 3000
+  
+  command = [
+    "filebeat", "-e",
+    "-E", "output.elasticsearch.hosts=[\"asseco_elastic:9200\"]",
+    "-E", "setup.kibana.host=asseco_kibana:5601"
+  ]
+
+  volumes {
+    host_path      = "/root/terraform-proekt/filebeat.yml"
+    container_path = "/usr/share/filebeat/filebeat.yml"
+    read_only      = true
   }
-  env = ["GF_SECURITY_ADMIN_PASSWORD=Lozinka123"]
+  volumes {
+    host_path      = "/var/lib/docker/containers"
+    container_path = "/var/lib/docker/containers"
+    read_only      = true
+  }
+  volumes {
+    host_path      = "/var/run/docker.sock"
+    container_path = "/var/run/docker.sock"
+    read_only      = true
+  }
+
+  depends_on = [
+    docker_container.elasticsearch,
+    docker_container.kibana
+  ]
 }
