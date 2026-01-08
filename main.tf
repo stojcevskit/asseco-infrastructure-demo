@@ -9,7 +9,7 @@ terraform {
 
 provider "docker" {}
 
-# 1. Мрежа за изолација
+# 1. Мрежа
 resource "docker_network" "private_net" {
   name = "asseco_internal"
 }
@@ -35,12 +35,17 @@ resource "docker_image" "filebeat_image" {
   name = "docker.elastic.co/beats/filebeat:8.11.1"
 }
 
+resource "docker_image" "metricbeat_image" {
+  name = "docker.elastic.co/beats/metricbeat:8.11.1"
+}
+
 # --- КОНТЕЈНЕРИ ---
 
 # 2. MariaDB
 resource "docker_container" "db" {
-  name  = "mariadb_server"
-  image = docker_image.mariadb_image.image_id
+  name         = "mariadb_server"
+  image        = docker_image.mariadb_image.image_id
+  network_mode = "bridge"
   log_opts = {
     "max-size" = "10m"
     "max-file" = "3"
@@ -55,12 +60,16 @@ resource "docker_container" "db" {
     host_path      = "/root/terraform-proekt/mysql-data"
     container_path = "/var/lib/mysql"
   }
+  lifecycle {
+    ignore_changes = [network_mode, image, command, entrypoint]
+  }
 }
 
 # 3. Nginx
 resource "docker_container" "web" {
-  name  = "nginx_proxy"
-  image = docker_image.nginx_image.image_id
+  name         = "nginx_proxy"
+  image        = docker_image.nginx_image.image_id
+  network_mode = "bridge"
   log_opts = {
     "max-size" = "10m"
     "max-file" = "3"
@@ -76,12 +85,16 @@ resource "docker_container" "web" {
     container_path = "/usr/share/nginx/html/index.html"
     read_only      = true
   }
+  lifecycle {
+    ignore_changes = [network_mode, image, command, entrypoint]
+  }
 }
 
-# 4. Netdata (За мониторинг на перформанси)
+# 4. Netdata
 resource "docker_container" "monitoring" {
-  name  = "netdata"
-  image = "netdata/netdata:latest"
+  name         = "netdata"
+  image        = "netdata/netdata:latest"
+  network_mode = "bridge"
   log_opts = {
     "max-size" = "10m"
     "max-file" = "3"
@@ -94,21 +107,25 @@ resource "docker_container" "monitoring" {
   capabilities { add = ["SYS_PTRACE"] }
   security_opts = ["apparmor=unconfined"]
   volumes {
-    host_path = "/proc"
+    host_path      = "/proc"
     container_path = "/host/proc"
-    read_only = true
+    read_only      = true
   }
   volumes {
-    host_path = "/sys"
+    host_path      = "/sys"
     container_path = "/host/sys"
-    read_only = true
+    read_only      = true
+  }
+  lifecycle {
+    ignore_changes = [network_mode, image, command, entrypoint]
   }
 }
 
 # 5. Elasticsearch
 resource "docker_container" "elasticsearch" {
-  name  = "asseco_elastic"
-  image = docker_image.elasticsearch.image_id
+  name         = "asseco_elastic"
+  image        = docker_image.elasticsearch.image_id
+  network_mode = "bridge"
   log_opts = {
     "max-size" = "10m"
     "max-file" = "3"
@@ -124,17 +141,20 @@ resource "docker_container" "elasticsearch" {
     internal = 9200
     external = 9200
   }
-  # Ова ги чува податоците на локалниот диск
   volumes {
     host_path      = "/root/terraform-proekt/es-data"
     container_path = "/usr/share/elasticsearch/data"
+  }
+  lifecycle {
+    ignore_changes = [network_mode, image, command, entrypoint, user]
   }
 }
 
 # 6. Kibana
 resource "docker_container" "kibana" {
-  name  = "asseco_kibana"
-  image = docker_image.kibana.image_id
+  name         = "asseco_kibana"
+  image        = docker_image.kibana.image_id
+  network_mode = "bridge"
   log_opts = {
     "max-size" = "10m"
     "max-file" = "3"
@@ -147,37 +167,34 @@ resource "docker_container" "kibana" {
   }
   env = [
     "ELASTICSEARCH_HOSTS=http://asseco_elastic:9200",
-    "XPACK_SECURITY_ENABLED=false"  
+    "XPACK_SECURITY_ENABLED=false"
   ]
   depends_on = [docker_container.elasticsearch]
+  lifecycle {
+    ignore_changes = [network_mode, image, command, entrypoint, user]
+  }
 }
 
 # 7. Filebeat
 resource "docker_container" "filebeat" {
-  name  = "asseco_filebeat"
-  image = docker_image.filebeat_image.image_id
+  name         = "asseco_filebeat"
+  image        = docker_image.filebeat_image.image_id
+  network_mode = "bridge"
   log_opts = {
     "max-size" = "10m"
     "max-file" = "3"
   }
-  user  = "root"
+  user    = "root"
   restart = "always"
   networks_advanced { name = docker_network.private_net.name }
-  
   command = [
     "filebeat", "-e",
     "-E", "output.elasticsearch.hosts=[\"asseco_elastic:9200\"]",
     "-E", "setup.kibana.host=asseco_kibana:5601"
   ]
-
   volumes {
     host_path      = "/root/terraform-proekt/filebeat.yml"
     container_path = "/usr/share/filebeat/filebeat.yml"
-    read_only      = true
-  }
-  volumes {
-    host_path      = "/var/lib/docker/containers"
-    container_path = "/var/lib/docker/containers"
     read_only      = true
   }
   volumes {
@@ -185,9 +202,34 @@ resource "docker_container" "filebeat" {
     container_path = "/var/run/docker.sock"
     read_only      = true
   }
+  volumes {
+    host_path      = "/var/lib/docker/containers"
+    container_path = "/var/lib/docker/containers"
+    read_only      = true
+  }
+  depends_on = [docker_container.elasticsearch, docker_container.kibana]
+  lifecycle {
+    ignore_changes = [network_mode, image, command, entrypoint]
+  }
+}
 
-  depends_on = [
-    docker_container.elasticsearch,
-    docker_container.kibana
+# 8. Metricbeat
+resource "docker_container" "metricbeat" {
+  name    = "asseco_metricbeat"
+  image   = docker_image.metricbeat_image.image_id
+  user    = "root"
+  restart = "always"
+  networks_advanced { name = docker_network.private_net.name }
+  command = [
+    "metricbeat", "-e",
+    "-E", "output.elasticsearch.hosts=[\"asseco_elastic:9200\"]",
+    "-E", "setup.kibana.host=asseco_kibana:5601",
+    "-E", "setup.dashboards.enabled=true"
   ]
+  volumes {
+    host_path      = "/var/run/docker.sock"
+    container_path = "/var/run/docker.sock"
+    read_only      = true
+  }
+  depends_on = [docker_container.elasticsearch, docker_container.kibana]
 }
