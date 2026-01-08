@@ -1,12 +1,24 @@
+filebeat.modules:
+  - module: nginx
+    access:
+      enabled: true
+      var.paths: ["/var/lib/docker/containers/*/*.log"]
+    error:
+      enabled: true
+      var.paths: ["/var/lib/docker/containers/*/*.log"]
+
 filebeat.inputs:
 - type: container
   paths:
     - /var/lib/docker/containers/*/*.log
-
-processors:
-- add_docker_metadata: ~
+  processors:
+    - add_docker_metadata: ~
 
 output.elasticsearch:
   hosts: ["http://asseco_elastic:9200"]
+  # Оваа линија ги праќа логовите на обработка
+  pipeline: "filebeat-%{[agent.version]}-nginx-access-pipeline"
 
 logging.level: info
+
+

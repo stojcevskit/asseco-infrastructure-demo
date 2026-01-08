@@ -214,22 +214,45 @@ resource "docker_container" "filebeat" {
 }
 
 # 8. Metricbeat
+# 8. Metricbeat
 resource "docker_container" "metricbeat" {
-  name    = "asseco_metricbeat"
-  image   = docker_image.metricbeat_image.image_id
-  user    = "root"
-  restart = "always"
-  networks_advanced { name = docker_network.private_net.name }
+  name  = "asseco_metricbeat"
+  image = "docker.elastic.co/beats/metricbeat:8.10.2"
+  
+  privileged = true
+  user       = "root"
+
+  networks_advanced {
+    name = docker_network.private_net.name
+  }
+
+  # Оваа команда го активира сетот и ги насочува патеките
   command = [
     "metricbeat", "-e",
     "-E", "output.elasticsearch.hosts=[\"asseco_elastic:9200\"]",
     "-E", "setup.kibana.host=asseco_kibana:5601",
-    "-E", "setup.dashboards.enabled=true"
+    "-E", "metricbeat.modules.0.module=system",
+    "-E", "metricbeat.modules.0.period=10s",
+    "-E", "metricbeat.modules.0.hostfs=/hostfs"
   ]
+
+  volumes {
+    host_path      = "/proc"
+    container_path = "/hostfs/proc"
+    read_only      = true
+  }
+  volumes {
+    host_path      = "/sys/fs/cgroup"
+    container_path = "/hostfs/sys/fs/cgroup"
+    read_only      = true
+  }
+  volumes {
+    host_path      = "/"
+    container_path = "/hostfs"
+    read_only      = true
+  }
   volumes {
     host_path      = "/var/run/docker.sock"
     container_path = "/var/run/docker.sock"
-    read_only      = true
   }
-  depends_on = [docker_container.elasticsearch, docker_container.kibana]
 }
