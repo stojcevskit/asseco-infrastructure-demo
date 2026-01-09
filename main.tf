@@ -216,11 +216,13 @@ resource "docker_container" "filebeat" {
 # 8. Metricbeat
 # 8. Metricbeat
 resource "docker_container" "metricbeat" {
+  restart = "always"
   name  = "asseco_metricbeat"
-  image = "docker.elastic.co/beats/metricbeat:8.10.2"
-  
+  image = docker_image.metricbeat_image.image_id  
   privileged = true
   user       = "root"
+
+  network_mode = "bridge"
 
   networks_advanced {
     name = docker_network.private_net.name
